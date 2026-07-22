@@ -1,23 +1,27 @@
 #!/usr/bin/env python3
 import atexit
 
-from flask import Flask, Response
+from flask import Flask, Response, abort, request
 
+from devices import DEVICES
 from render import Renderer
-from widgets.clock import get_context
-
-PANEL_WIDTH = 800
-PANEL_HEIGHT = 480
+from widgets import battery, clock
 
 app = Flask(__name__)
 renderer = Renderer()
 atexit.register(renderer.close)
 
 
-@app.route("/image.png")
-def image():
-    ctx = get_context()
-    png = renderer.render("screen.html", ctx, PANEL_WIDTH, PANEL_HEIGHT)
+@app.route("/image/<device_id>.png")
+def image(device_id):
+    device = DEVICES.get(device_id)
+    if device is None:
+        abort(404)
+
+    ctx = clock.get_context()
+    ctx.update(battery.get_context(request.args.get("battery", type=int)))
+
+    png = renderer.render(device["screen"], ctx, device["width"], device["height"])
     return Response(png, mimetype="image/png")
 
 

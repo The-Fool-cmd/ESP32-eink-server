@@ -11,6 +11,7 @@
     background: #fff;
   }
   body {
+    position: relative;
     display: flex;
     align-items: center;
     justify-content: center;
@@ -29,9 +30,44 @@
     font-size: 32px;
     margin-top: 16px;
   }
+  .widget-battery {
+    position: absolute;
+    top: 24px;
+    right: 36px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+  }
+  .battery-icon {
+    position: relative;
+    width: 60px;
+    height: 28px;
+    box-sizing: border-box;
+    border: 3px solid #000;
+    border-radius: 3px;
+    padding: 2px;
+  }
+  .battery-icon::after {
+    content: "";
+    position: absolute;
+    top: 8px;
+    right: -7px;
+    width: 5px;
+    height: 12px;
+    background: #000;
+    border-radius: 0 2px 2px 0;
+  }
+  .battery-fill {
+    height: 100%;
+    background: #000;
+  }
+  .battery-label {
+    font-size: 22px;
+  }
 </style>
 </head>
 <body>
+  {% include "widgets/battery.html" %}
   {% include "widgets/clock.html" %}
 </body>
 </html>

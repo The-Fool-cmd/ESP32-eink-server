@@ -15,6 +15,7 @@
         ps.jinja2
         ps.flask
         ps.pillow
+        ps.caldav
       ]);
     in
     {

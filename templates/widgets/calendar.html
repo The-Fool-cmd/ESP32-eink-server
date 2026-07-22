@@ -1,0 +1,17 @@
+<div class="widget-calendar">
+  <div class="calendar-title">Today</div>
+  {% if calendar_error %}
+  <div class="calendar-error">Calendar unavailable</div>
+  {% elif events %}
+  <ul class="calendar-events">
+    {% for event in events %}
+    <li>
+      <span class="event-time">{{ event.time }}</span>
+      <span class="event-summary">{{ event.summary }}</span>
+    </li>
+    {% endfor %}
+  </ul>
+  {% else %}
+  <div class="calendar-empty">No events today</div>
+  {% endif %}
+</div>

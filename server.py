@@ -5,7 +5,7 @@ from flask import Flask, Response, abort, request
 
 from devices import DEVICES
 from render import Renderer
-from widgets import battery, clock
+from widgets import battery, calendar
 
 app = Flask(__name__)
 renderer = Renderer()
@@ -18,8 +18,8 @@ def image(device_id):
     if device is None:
         abort(404)
 
-    ctx = clock.get_context()
-    ctx.update(battery.get_context(request.args.get("battery", type=int)))
+    ctx = battery.get_context(request.args.get("battery", type=int))
+    ctx.update(calendar.get_context())
 
     png = renderer.render(device["screen"], ctx, device["width"], device["height"])
     return Response(png, mimetype="image/png")

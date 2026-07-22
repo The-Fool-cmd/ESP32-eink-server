@@ -10,9 +10,11 @@ from widgets import battery, calendar
 
 
 def main():
+    width, height = 800, 480
     ctx = battery.get_context(87)
     ctx.update(calendar.get_context())
-    png = render_screen("screen.html", ctx, width=800, height=480)
+    ctx.update(width=width, height=height)
+    png = render_screen("screen.html", ctx, width=width, height=height)
     out = Path(__file__).resolve().parent.parent / "out.png"
     out.write_bytes(png)
     print(f"wrote {out} ({len(png)} bytes)")

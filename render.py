@@ -8,17 +8,24 @@ TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 _env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
 
+# Removes data-trim-overflow elements that run past the canvas edge, so widgets
+# can render a variable number of items without precomputing how many fit.
+_TRIM_OVERFLOW_JS = """
+() => {
+  document.querySelectorAll('[data-trim-overflow]').forEach(el => {
+    if (el.getBoundingClientRect().bottom > window.innerHeight) el.remove();
+  });
+}
+"""
+
 
 def render_html(template_name: str, context: dict) -> str:
     return _env.get_template(template_name).render(**context)
 
 
 class Renderer:
-    """Owns a single long-lived Chromium instance, pinned to one worker
-    thread (Playwright's sync API can only be driven from the thread that
-    started it, but a WSGI server may handle each request on a different
-    thread). Requests submit render jobs to that thread and block for the
-    result, which also serializes renders without an extra lock."""
+    """Long-lived Chromium instance pinned to one worker thread, since
+    Playwright's sync API can't be driven from more than one thread."""
 
     def __init__(self):
         self._executor = ThreadPoolExecutor(max_workers=1)
@@ -36,6 +43,7 @@ class Renderer:
         page = self._browser.new_page(viewport={"width": width, "height": height})
         try:
             page.set_content(html, wait_until="networkidle")
+            page.evaluate(_TRIM_OVERFLOW_JS)
             return page.screenshot()
         finally:
             page.close()

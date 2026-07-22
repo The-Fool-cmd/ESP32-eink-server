@@ -1,11 +1,11 @@
 <div class="widget-calendar">
-  <div class="calendar-title">Today</div>
+  <div class="calendar-title">{{ date_label }}</div>
   {% if calendar_error %}
   <div class="calendar-error">Calendar unavailable</div>
   {% elif events %}
   <ul class="calendar-events">
     {% for event in events %}
-    <li>
+    <li data-trim-overflow>
       <span class="event-time">{{ event.time }}</span>
       <span class="event-summary">{{ event.summary }}</span>
     </li>

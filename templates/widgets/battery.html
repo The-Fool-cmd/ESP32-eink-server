@@ -1,8 +1,9 @@
 {% if battery_pct is not none %}
-<div class="widget-battery">
+{% set low = battery_pct < 20 %}
+<div class="widget-battery{{ ' low' if low }}">
   <div class="battery-icon">
-    <div class="battery-fill" style="width: {{ battery_pct }}%;"></div>
+    <div class="battery-fill{{ ' low' if low }}" style="width: {{ battery_pct }}%;"></div>
   </div>
-  <div class="battery-label">{{ battery_pct }}%</div>
+  <div class="battery-label{{ ' low' if low }}">{{ battery_pct }}%</div>
 </div>
 {% endif %}

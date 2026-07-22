@@ -20,6 +20,7 @@ def image(device_id):
 
     ctx = battery.get_context(request.args.get("battery", type=int))
     ctx.update(calendar.get_context())
+    ctx.update(width=device["width"], height=device["height"])
 
     png = renderer.render(device["screen"], ctx, device["width"], device["height"])
     return Response(png, mimetype="image/png")

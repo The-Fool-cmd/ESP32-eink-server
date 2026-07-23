@@ -24,7 +24,7 @@ def get_context(now: datetime | None = None) -> dict:
         }
 
     try:
-        client = caldav.DAVClient(url=url, username=username, password=password)
+        client = caldav.DAVClient(url=url, username=username, password=password, timeout=10)
         principal = client.principal()
 
         raw_events = []

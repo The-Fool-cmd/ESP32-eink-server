@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """Minimal end-to-end check: render the calendar + battery widgets to out.png."""
 import sys
+from datetime import datetime
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -13,6 +14,7 @@ def main():
     width, height = 800, 480
     ctx = battery.get_context(87)
     ctx.update(calendar.get_context())
+    ctx.update(updated_at=datetime.now().strftime("%a %H:%M"))
     ctx.update(width=width, height=height)
     png = render_screen("screen.html", ctx, width=width, height=height)
     out = Path(__file__).resolve().parent.parent / "out.png"

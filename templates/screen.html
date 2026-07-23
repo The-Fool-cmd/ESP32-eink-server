@@ -106,10 +106,21 @@
   .widget-battery.low .battery-icon {
     border-width: 4px;
   }
+
+  .updated-at {
+    position: absolute;
+    bottom: 12px;
+    right: 16px;
+    font-size: 16px;
+    color: #666;
+  }
 </style>
 </head>
 <body>
   {% include "widgets/battery.html" %}
   {% include "widgets/calendar.html" %}
+  {% if updated_at %}
+  <div class="updated-at">Updated {{ updated_at }}</div>
+  {% endif %}
 </body>
 </html>

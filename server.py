@@ -1,5 +1,6 @@
 #!/usr/bin/env python3
 import atexit
+from datetime import datetime
 
 from flask import Flask, Response, abort, request
 
@@ -20,6 +21,7 @@ def image(device_id):
 
     ctx = battery.get_context(request.args.get("battery", type=int))
     ctx.update(calendar.get_context())
+    ctx.update(updated_at=datetime.now().strftime("%a %H:%M"))
     ctx.update(width=device["width"], height=device["height"])
 
     png = renderer.render(device["screen"], ctx, device["width"], device["height"])

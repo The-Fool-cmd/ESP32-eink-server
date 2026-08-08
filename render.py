@@ -4,6 +4,8 @@ from pathlib import Path
 from jinja2 import Environment, FileSystemLoader
 from playwright.sync_api import sync_playwright
 
+import dither
+
 TEMPLATES_DIR = Path(__file__).parent / "templates"
 
 _env = Environment(loader=FileSystemLoader(str(TEMPLATES_DIR)))
@@ -35,18 +37,33 @@ class Renderer:
         self._playwright = sync_playwright().start()
         self._browser = self._playwright.chromium.launch()
 
-    def render(self, template_name: str, context: dict, width: int, height: int) -> bytes:
-        return self._executor.submit(self._render, template_name, context, width, height).result()
+    def render(
+        self,
+        template_name: str,
+        context: dict,
+        width: int,
+        height: int,
+        palette: list[tuple[int, int, int]] | None = None,
+    ) -> bytes:
+        return self._executor.submit(self._render, template_name, context, width, height, palette).result()
 
-    def _render(self, template_name: str, context: dict, width: int, height: int) -> bytes:
+    def _render(
+        self,
+        template_name: str,
+        context: dict,
+        width: int,
+        height: int,
+        palette: list[tuple[int, int, int]] | None = None,
+    ) -> bytes:
         html = render_html(template_name, context)
         page = self._browser.new_page(viewport={"width": width, "height": height})
         try:
             page.set_content(html, wait_until="networkidle")
             page.evaluate(_TRIM_OVERFLOW_JS)
-            return page.screenshot()
+            png = page.screenshot()
         finally:
             page.close()
+        return dither.apply(png, palette) if palette else png
 
     def close(self):
         self._executor.submit(self._stop).result()
@@ -57,11 +74,17 @@ class Renderer:
         self._playwright.stop()
 
 
-def render_screen(template_name: str, context: dict, width: int, height: int) -> bytes:
+def render_screen(
+    template_name: str,
+    context: dict,
+    width: int,
+    height: int,
+    palette: list[tuple[int, int, int]] | None = None,
+) -> bytes:
     """One-shot render (launches and tears down its own browser). Use
     Renderer instead when serving more than one request."""
     renderer = Renderer()
     try:
-        return renderer.render(template_name, context, width, height)
+        return renderer.render(template_name, context, width, height, palette)
     finally:
         renderer.close()

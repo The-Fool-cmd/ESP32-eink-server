@@ -43,16 +43,38 @@ def get_context(now: datetime | None = None) -> dict:
                     else:
                         time_label = dtstart.strftime("%H:%M")
 
+                    # end-of-day for all-day events (they're "current" all day);
+                    # dtend if the event has one; otherwise treat as a point in
+                    # time (its own start) — used below to pick the one event
+                    # to visually emphasize, not shown to the template directly.
+                    if all_day:
+                        end_dt = datetime.combine(dtstart, datetime.min.time()) + timedelta(days=1)
+                    elif dtend:
+                        end_dt = dtend
+                    else:
+                        end_dt = sort_dt
+
                     raw_events.append(
                         {
                             "time": time_label,
                             "summary": str(component.get("summary", "(untitled)")),
                             "_sort": sort_dt,
+                            "_end": end_dt,
                         }
                     )
 
         raw_events.sort(key=lambda e: e["_sort"])
-        events = [{"time": e["time"], "summary": e["summary"]} for e in raw_events]
+
+        # Emphasize exactly one event: the first one (in chronological order)
+        # that hasn't ended yet — "the one to look at right now," whether
+        # that's something currently in progress or the next thing coming up.
+        # Once everything today has already ended, nothing is emphasized.
+        current_idx = next((i for i, e in enumerate(raw_events) if e["_end"] > now), None)
+
+        events = [
+            {"time": e["time"], "summary": e["summary"], "current": i == current_idx}
+            for i, e in enumerate(raw_events)
+        ]
         return {"events": events, "calendar_error": None, "date_label": date_label}
     except Exception as exc:
         return {"events": [], "calendar_error": str(exc), "date_label": date_label}

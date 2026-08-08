@@ -1,0 +1,246 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    /* These must equal devices.py's _SPECTRA6 palette exactly, not just be
+       "close" — a solid fill in any of these colors then quantizes with
+       zero error (dither.py maps an exact palette match 1:1), so it stays
+       flat. A near-but-not-identical value (an earlier version of this file
+       picked its own hex independently) still gets Floyd-Steinberg'd
+       against the real palette, speckling what should be a clean fill with
+       stray red/green/blue flecks — caught by rendering and zooming in, not
+       obvious at a glance. Reserved for status meaning only (battery level,
+       service status) — chrome/framing elements below stay black/white so a
+       color never impersonates a status it doesn't have. */
+    --c-red: #ff0000;
+    --c-yellow: #ffff00;
+    --c-green: #00ff00;
+    --c-blue: #0000ff;
+    /* See templates/screen.html's --mono comment — same split here. */
+    --mono: "DejaVu Sans Mono", monospace;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: {{ width }}px;
+    height: {{ height }}px;
+    /* Dark canvas — but only the canvas/chrome, not the tiles (see
+       .uptime-tile below): full-black fills cost real ink coverage on a
+       reflective panel, so keeping the actual text-dense surfaces (the
+       tiles) white and only the surrounding frame dark keeps this cheap to
+       refresh while still reading as dark mode. Status colors also read
+       better against black than they did against white — yellow especially,
+       which was the one WARN the dataviz palette validator flagged earlier. */
+    background: #000;
+  }
+  body {
+    position: relative;
+    font-family: sans-serif;
+    color: #fff;
+  }
+  /* Decorative accent color (not a status color) — kept off the tiles
+     entirely so it never gets confused with status-pending's yellow. */
+  body::before, body::after {
+    content: "";
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border: 3px solid var(--c-yellow);
+  }
+  body::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+  body::after { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+  .widget-uptime {
+    box-sizing: border-box;
+    height: 100%;
+    padding: 40px 48px;
+    display: flex;
+    flex-direction: column;
+  }
+  .uptime-title {
+    font-family: var(--mono);
+    font-size: 30px;
+    font-weight: 700;
+    letter-spacing: 3px;
+    text-transform: uppercase;
+    color: #fff;
+    /* No filled bar this time — the canvas is already black, so a same-color
+       bar would be invisible. A yellow underline carries the same "header"
+       weight instead, and doubles down on the decorative-accent color. */
+    padding-bottom: 14px;
+    margin-bottom: 28px;
+    border-bottom: 4px solid var(--c-yellow);
+  }
+  .uptime-grid {
+    flex: 1;
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    grid-template-rows: repeat(2, 1fr);
+    gap: 20px;
+  }
+  .uptime-tile {
+    /* min-width: 0 overrides the grid item default of min-width: auto —
+       without it, a long unbroken name (e.g. "ESPHome Dashboard") forces
+       its column past 1fr instead of shrinking, pushing the grid off the
+       right edge of the canvas rather than letting text-overflow ellipsis
+       (below) kick in. */
+    min-width: 0;
+    box-sizing: border-box;
+    /* Explicit white — cards stay light "panels" floating on the now-dark
+       canvas rather than going all-black themselves; see the html/body
+       comment above for why. Everything inside keeps the same black text
+       it always had, now stated explicitly rather than inherited, since the
+       inherited default (body's color) is white now. */
+    background: #fff;
+    color: #000;
+    border: 3px solid #000;
+    border-top-width: 8px;
+    /* Chamfered corner, not rounded — see screen.html's matching card style;
+       same visual language across both devices. */
+    clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%, 0 14px);
+    padding: 14px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+  }
+  .uptime-dot {
+    width: 18px;
+    height: 18px;
+    background: #999;
+    transform: rotate(45deg);
+  }
+  .uptime-name {
+    font-size: 19px;
+    font-weight: 600;
+    text-align: center;
+    max-width: 100%;
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .uptime-status {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #000;
+  }
+  .uptime-pct {
+    font-size: 15px;
+    /* Plain black, not a gray tone: the SPECTRA6 palette has no gray, so a
+       gray CSS color dithers into a red/green/blue confetti speckle
+       (Floyd-Steinberg picks whichever of the 6 primaries is locally
+       nearest, and several sit about as close to mid-gray as black/white
+       do) instead of a clean black/white stipple. De-emphasis comes from
+       font-size here, not color — see dither.py / devices.py's palette
+       comment for the full reasoning. */
+    color: #000;
+  }
+  .uptime-empty, .uptime-error {
+    /* White, not black — unlike .uptime-pct/.uptime-status above, these sit
+       directly on the dark canvas, not inside a white tile. */
+    font-family: var(--mono);
+    font-size: 24px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+
+  .status-up { border-top-color: var(--c-green); }
+  .status-up .uptime-dot { background: var(--c-green); }
+
+  .status-pending { border-top-color: var(--c-yellow); }
+  .status-pending .uptime-dot { background: var(--c-yellow); }
+
+  .status-maintenance { border-top-color: var(--c-blue); }
+  .status-maintenance .uptime-dot { background: var(--c-blue); }
+
+  .status-unknown { border-top-color: #000; }
+  .status-unknown .uptime-dot { background: #000; }
+
+  .status-down {
+    border-color: var(--c-red);
+    border-width: 4px;
+    border-top-width: 8px;
+  }
+  .status-down .uptime-dot { background: var(--c-red); }
+  /* Deliberate exception to "text never wears the data color" (see
+     screen_status.html/README): a critical/offline state is an alert, not
+     plain identity, and alert text in the alarm color is a standard,
+     legible HUD convention — kept to this one state only. */
+  .status-down .uptime-name, .status-down .uptime-status, .status-down .uptime-pct {
+    font-weight: 700;
+    color: var(--c-red);
+  }
+
+  /* Sits in the top margin above the tile grid, on the canvas's own dark
+     background — segment fills stay their full status color regardless
+     (opaque saturated colors read fine on either background); the unfilled
+     track/border/label are white to stay legible on black. */
+  .widget-battery {
+    position: absolute;
+    top: 18px;
+    right: 40px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+  .battery-meter {
+    display: flex;
+    gap: 3px;
+  }
+  .battery-segment {
+    width: 14px;
+    height: 24px;
+    box-sizing: border-box;
+    border: 2px solid #fff;
+    background: transparent;
+  }
+  .battery-segment.filled {
+    background: var(--c-green);
+  }
+  .level-medium .battery-segment.filled {
+    background: var(--c-yellow);
+  }
+  .level-low .battery-segment.filled {
+    background: var(--c-red);
+  }
+  .battery-label {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+  .widget-battery.level-low .battery-segment {
+    border-width: 3px;
+    border-color: var(--c-red);
+  }
+  .widget-battery.level-low .battery-label {
+    font-weight: 700;
+    color: var(--c-red);
+  }
+
+  .updated-at {
+    position: absolute;
+    bottom: 40px;
+    right: 16px;
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    /* White — sits directly on the dark canvas, not inside a tile. */
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+  {% include "widgets/battery.html" %}
+  {% include "widgets/uptime.html" %}
+  {% if updated_at %}
+  <div class="updated-at">Updated {{ updated_at }}</div>
+  {% endif %}
+</body>
+</html>

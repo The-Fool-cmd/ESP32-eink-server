@@ -1,9 +1,10 @@
 {% if battery_pct is not none %}
-{% set low = battery_pct < 20 %}
-<div class="widget-battery{{ ' low' if low }}">
-  <div class="battery-icon">
-    <div class="battery-fill{{ ' low' if low }}" style="width: {{ battery_pct }}%;"></div>
+<div class="widget-battery level-{{ battery_level }}">
+  <div class="battery-meter">
+    {% for i in range(5) %}
+    <div class="battery-segment{{ ' filled' if i < battery_segments else '' }}"></div>
+    {% endfor %}
   </div>
-  <div class="battery-label{{ ' low' if low }}">{{ battery_pct }}%</div>
+  <div class="battery-label">[ PWR {{ battery_pct }}% ]</div>
 </div>
 {% endif %}

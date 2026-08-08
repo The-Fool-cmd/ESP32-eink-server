@@ -1,0 +1,21 @@
+<div class="widget-uptime">
+  <div class="uptime-title">Services</div>
+  {% if uptime_error %}
+  <div class="uptime-error">[ STATUS FEED OFFLINE ]</div>
+  {% elif services %}
+  <div class="uptime-grid">
+    {% for service in services %}
+    <div class="uptime-tile status-{{ service.status }}" data-trim-overflow>
+      <div class="uptime-dot"></div>
+      <div class="uptime-name">{{ service.name }}</div>
+      <div class="uptime-status">[ {{ service.status_label }} ]</div>
+      {% if service.uptime_pct is not none %}
+      <div class="uptime-pct">{{ service.uptime_pct }}%</div>
+      {% endif %}
+    </div>
+    {% endfor %}
+  </div>
+  {% else %}
+  <div class="uptime-empty">[ NO SERVICES CONFIGURED ]</div>
+  {% endif %}
+</div>

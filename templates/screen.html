@@ -4,10 +4,9 @@
 <meta charset="utf-8">
 <style>
   :root {
-    /* Monospace for anything "technical readout" (header, times, status,
-       meter label) — reads as HUD/terminal. Event summaries stay in the
-       body sans-serif below since arbitrary-length free text is more
-       legible there; mixing the two deliberately, not inconsistently. */
+    /* Monospace for anything that reads as a technical readout: header,
+       times, status, meter label. Event summaries stay in the body
+       sans-serif, which is more legible for arbitrary-length free text. */
     --mono: "DejaVu Sans Mono", monospace;
   }
   html, body {
@@ -22,9 +21,8 @@
     font-family: sans-serif;
     color: #000;
   }
-  /* Outer HUD frame: two opposing corner brackets, not all four — a full
-     viewfinder frame on an 800x480 canvas this busy reads as clutter, two
-     corners still reads as "framed" without competing with the content. */
+  /* Two opposing corner brackets rather than all four: a full frame on a
+     canvas this busy competes with the content. */
   body::before, body::after {
     content: "";
     position: absolute;
@@ -48,9 +46,9 @@
     text-transform: uppercase;
     color: #fff;
     background: #000;
-    /* Bleeds the title bar to the true canvas edge by reversing the
-       container's own padding, rather than restructuring the widget's
-       HTML to separate a header region from its body. */
+    /* Bleeds the title bar to the canvas edge by reversing the container's
+       own padding, so the widget's HTML doesn't need a separate header
+       region. */
     margin: -40px -48px 28px -48px;
     padding: 18px 48px;
   }
@@ -66,8 +64,8 @@
     margin-bottom: 14px;
     padding: 12px 18px;
     border: 2px solid #000;
-    /* Chamfered corner, not rounded — the one card-shape signature that
-       reads as "console panel" rather than "friendly app card". */
+    /* Chamfered rather than rounded corner: the shared card signature
+       across every device template. */
     clip-path: polygon(14px 0, 100% 0, 100% 100%, 0 100%, 0 14px);
   }
   .event-marker {
@@ -89,9 +87,8 @@
     white-space: nowrap;
     text-overflow: ellipsis;
   }
-  /* The one event to look at right now (in progress, or next up) — inverse
-     video, the one piece of emphasis on this device rather than decorating
-     every row equally. See widgets/calendar.py's "current" flag. */
+  /* The event in progress or next up, in inverse video — the only
+     emphasis on this device. See widgets/calendar.py's "current" flag. */
   .calendar-events li.current {
     background: #000;
     border-color: #000;
@@ -108,10 +105,9 @@
     color: #000;
   }
 
-  /* Lives inside the header bar's own black band (confined to its ~71px
-     height), not floating over the content below — colors are inverted
-     (white on black) to read there, rather than pushing it below the
-     header where it would collide with the first calendar row instead. */
+  /* Sits inside the header bar's black band (its ~71px height), so the
+     colors are inverted to read there. Below the header it would collide
+     with the first calendar row. */
   .widget-battery {
     position: absolute;
     top: 18px;
@@ -145,8 +141,8 @@
     border-width: 3px;
   }
   .widget-battery.level-low .battery-segment.filled {
-    /* Black hatch on white would vanish against the header's own black —
-       stripe with transparent (shows the header black through it) instead. */
+    /* A black hatch would vanish against the header's own black, so the
+       stripe is transparent and lets the header show through. */
     background: repeating-linear-gradient(
       45deg,
       transparent,

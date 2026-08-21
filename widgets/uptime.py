@@ -18,9 +18,8 @@ _STATUS_LABELS = {
     3: "maintenance",
 }
 
-# Status must never be color-alone (colorblind readers, and a panel that
-# hasn't been color-calibrated yet — see devices.py) — every tile also gets
-# one of these as a plain-text bracket label.
+# Status is never color-alone: every tile also carries one of these as a
+# plain-text bracket label alongside its color.
 _STATUS_TEXT = {
     "up": "ONLINE",
     "down": "OFFLINE",

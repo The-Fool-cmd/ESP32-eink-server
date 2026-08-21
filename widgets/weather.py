@@ -12,11 +12,10 @@ _FORECAST_URL = "https://api.open-meteo.com/v1/forecast"
 _HOURLY_SPAN = 6
 
 # WMO weather codes (Open-Meteo's `weather_code`), collapsed to short
-# HUD-style labels and one of a handful of pure-CSS icon shapes (see
-# templates/widgets/weather.html's .icon-* classes — no emoji/webfont, so
-# rendering never depends on a color-emoji font being present). Codes not
-# listed here fall back to "UNKNOWN" / icon-cloudy rather than raising. See
-# https://open-meteo.com/en/docs for the full table.
+# labels and one of a handful of pure-CSS icon shapes (the .icon-* classes in
+# templates/widgets/weather.html). Codes not listed here fall back to
+# "UNKNOWN" / icon-cloudy rather than raising. Full table:
+# https://open-meteo.com/en/docs
 _CONDITIONS = {
     0: ("CLEAR", "clear"),
     1: ("MOSTLY CLEAR", "clear"),
@@ -60,11 +59,9 @@ def _compass(deg: float) -> str:
 
 
 def _uv_category(uv: float) -> tuple[str, str]:
-    """WHO's 5-tier UV scale collapsed to 3 status levels — SPECTRA6 has no
-    orange/violet, so High/Very High/Extreme all map to the same "high" red
-    (see templates/widgets/weather.html's .uv-* classes). The text label
-    always ships alongside the color, same "never color-alone" rule as the
-    uptime status tiles in screen_status.html.
+    """WHO's 5-tier UV scale collapsed to 3 status levels: SPECTRA6 has no
+    orange or violet, so High/Very High/Extreme all share the same red. The
+    text label always ships alongside the color.
     """
     if uv < 3:
         return "LOW", "low"
@@ -90,9 +87,9 @@ def get_context(lat: str | None = None, lon: str | None = None, now: datetime | 
     lat = lat or os.environ.get("WEATHER_LAT")
     lon = lon or os.environ.get("WEATHER_LON")
     now = now or datetime.now()
-    # Own key, not calendar.py's "date_label" — both would be merged into
-    # the same context dict in server.py, and a same-named key from two
-    # widgets silently collides (last ctx.update() wins) rather than erroring.
+    # Own key rather than calendar.py's "date_label": server.py merges every
+    # widget into one context dict, where a duplicate key silently wins over
+    # the other rather than erroring.
     date_label = now.strftime("%a %d %b").upper()
 
     if not lat or not lon:
@@ -100,10 +97,9 @@ def get_context(lat: str | None = None, lon: str | None = None, now: datetime | 
 
     location_name = os.environ.get("WEATHER_LOCATION_NAME") or f"{lat}, {lon}"
 
-    # forecast_days=2 (not 1): the hourly strip below needs "now" plus the
-    # next _HOURLY_SPAN hours, which can roll past midnight into tomorrow
-    # depending what time the device happens to render at — a 1-day window
-    # would run out of hours for a render that lands late in the evening.
+    # forecast_days=2 rather than 1: the hourly strip needs "now" plus the
+    # next _HOURLY_SPAN hours, which rolls past midnight for a render that
+    # lands late in the evening.
     params = {
         "latitude": lat,
         "longitude": lon,
@@ -128,10 +124,9 @@ def get_context(lat: str | None = None, lon: str | None = None, now: datetime | 
 
         now_condition, now_icon = _condition(current["weather_code"])
 
-        # Index of the current hour in the hourly arrays — floor "now" to
-        # the hour and find that exact timestamp, rather than assuming
-        # index 0 (forecast_days=2 always starts its arrays at today's
-        # 00:00, not "now").
+        # Index of the current hour in the hourly arrays: the arrays always
+        # start at today's 00:00, not at "now", so floor "now" to the hour
+        # and look that timestamp up rather than assuming index 0.
         now_key = now.strftime("%Y-%m-%dT%H:00")
         times = hourly["time"]
         now_idx = times.index(now_key) if now_key in times else 0
@@ -141,9 +136,9 @@ def get_context(lat: str | None = None, lon: str | None = None, now: datetime | 
         hourly_labels = ["NOW"] + [
             datetime.fromisoformat(t).strftime("%H") for t in times[now_idx + 1 : now_idx + _HOURLY_SPAN + 1]
         ]
-        # Bars are scaled within this 7-point window's own min/max, not the
-        # full day's — the strip is a near-term glance, not a day overview,
-        # so its own range gives more visible bar-height variation.
+        # Bars scale within this window's own min/max rather than the full
+        # day's, which gives visible height variation across a near-term
+        # strip that would otherwise look flat.
         span_low, span_high = min(hourly_temps), max(hourly_temps)
         span = (span_high - span_low) or 1
         hourly_bars = [
@@ -156,8 +151,8 @@ def get_context(lat: str | None = None, lon: str | None = None, now: datetime | 
             for label, t, p in zip(hourly_labels, hourly_temps, hourly_precip)
         ]
 
-        # "Peak" rain chance today, and the hour it hits — today's 24 hours
-        # are always indices 0-23 (forecast_days=2 puts today first).
+        # Peak rain chance today and the hour it hits; today's 24 hours are
+        # always indices 0-23.
         precip_peak = daily["precipitation_probability_max"][0]
         today_precip = hourly["precipitation_probability"][:24]
         peak_idx = today_precip.index(precip_peak) if precip_peak in today_precip else 0

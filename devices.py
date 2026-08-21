@@ -1,15 +1,14 @@
-# Per-device dither target palettes (see dither.py). Pure black/white is
-# exact — there's no calibration question for a 1-bit panel. The SPECTRA6
-# values are the exact pure-saturated RGB triples the ESP32-eink-client
-# firmware's own native Color(r,g,b,w) constants use (see that repo's
-# test.yaml forced-write test) — not a "measured, close-enough" approximation
-# of the physical ink like an earlier version of this file used. Matching the
-# firmware's own values byte-for-byte, rather than something merely close,
-# rules out any mismatch between what we quantize to here and whatever
-# color-matching the firmware does on the other end. If color still doesn't
-# reproduce on the panel with these exact values, the bug is downstream of
-# this palette (refresh mode, or the PNG decode/color-mapping path) — see
-# the "Dithering" section in README.md for the live debugging thread.
+"""Device registry: one entry per physical panel.
+
+The device id is whatever the client asks for (`GET /image/<device_id>.png`);
+each entry names the top-level template to render, the panel's pixel
+dimensions, and the palette to dither down to.
+"""
+
+# Dither target palettes (see dither.py). A 1-bit panel is exact by
+# definition. The SPECTRA6 values are the pure-saturated RGB triples the
+# ESP32-eink-client firmware uses for its own native colors, so what this
+# server quantizes to is byte-for-byte what the firmware expects.
 _MONO = [(0, 0, 0), (255, 255, 255)]
 _SPECTRA6 = [
     (0, 0, 0),  # black
@@ -21,21 +20,22 @@ _SPECTRA6 = [
 ]
 
 DEVICES = {
+    # 7.5" mono panel, landscape: calendar + battery.
     "fool-nightstand": {
         "screen": "screen.html",
         "width": 800,
         "height": 480,
         "palette": _MONO,
     },
+    # 7.3" SPECTRA6 panel, landscape: service status + battery.
     "fool-workdesk": {
         "screen": "screen_status.html",
         "width": 800,
         "height": 480,
         "palette": _SPECTRA6,
     },
+    # Same 7.3" SPECTRA6 panel, portrait-mounted: weather + battery.
     "fool-entrance": {
-        # Same physical 7.3" SPECTRA6 panel as fool-workdesk, portrait-mounted
-        # (800x480 rotated) rather than landscape.
         "screen": "screen_weather.html",
         "width": 480,
         "height": 800,

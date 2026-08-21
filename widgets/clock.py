@@ -1,3 +1,5 @@
+"""Minimal reference widget: the smallest thing that satisfies the
+get_context() -> dict contract. Not included in any screen."""
 from datetime import datetime
 
 

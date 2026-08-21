@@ -11,16 +11,13 @@ def _snap_neutrals(img: Image.Image) -> Image.Image:
     """Force near-gray pixels to pure black/white before quantizing.
 
     Chromium's font antialiasing doesn't hand back clean grayscale blends —
-    edge pixels carry a faint, genuine RGB tint (subpixel-style
-    antialiasing), just a few units of saturation, invisible against a
-    white/black backdrop. Fed straight into a 6-color nearest-match
-    quantizer, those few units are enough for Floyd-Steinberg to decide
-    "nearest palette entry" is red or yellow rather than black or white,
-    speckling every letter and border with a faint rainbow fringe instead
-    of the clean black/white stipple a 2-color quantize would produce. Only
-    pixels below the saturation threshold get snapped — genuinely colored
-    content (the widget accent fills) is untouched and still gets full
-    Floyd-Steinberg dithering against all 6 colors.
+    edge pixels carry a faint RGB tint, just a few units of saturation and
+    invisible against a white or black backdrop. Fed into a 6-color
+    nearest-match quantizer, those few units are enough for Floyd-Steinberg
+    to pick red or yellow over black or white, speckling every letter and
+    border with a rainbow fringe. Only pixels below the saturation threshold
+    get snapped; genuinely colored content still gets full dithering against
+    the whole palette.
     """
     _, s, _ = img.convert("HSV").split()
     neutral_mask = s.point(lambda p: 255 if p < _NEUTRAL_SAT_THRESHOLD else 0)
@@ -32,21 +29,18 @@ def apply(png_bytes: bytes, palette: list[tuple[int, int, int]]) -> bytes:
     """Quantize a full-color PNG down to a fixed device palette using
     Floyd-Steinberg error diffusion, then re-encode as PNG.
 
-    Chromium hands back full 24-bit RGB — anti-aliased text edges, smooth
-    CSS gradients, none of which the panel can actually show. Without this,
-    the device firmware would have to nearest-color-threshold every pixel
-    itself with no error diffusion, which is what actually hurts text
-    legibility (thin anti-aliased strokes either disappear or turn blocky)
-    and makes flat CSS colors the only option. Doing it here means the PNG
-    we send is already exactly what the panel will show, dithered the same
-    way regardless of whatever the firmware's own PNG decoder does.
+    Chromium hands back 24-bit RGB — anti-aliased text edges, smooth CSS
+    gradients, none of which the panel can show. Dithering here rather than
+    leaving it to the firmware means the PNG on the wire is already exactly
+    what the panel will display, and thin anti-aliased strokes survive as a
+    stipple instead of being thresholded away.
     """
     img = _snap_neutrals(Image.open(BytesIO(png_bytes)).convert("RGB"))
 
     # Pillow's quantize(palette=...) wants the target colors as another
-    # image's palette, not a plain list — this is the standard idiom for
-    # "quantize to this exact fixed set of colors" rather than letting
-    # Pillow pick its own approximating palette.
+    # image's palette rather than a plain list — this is the idiom for
+    # quantizing to an exact fixed set of colors instead of letting Pillow
+    # pick its own approximating palette.
     palette_img = Image.new("P", (1, 1))
     flat = [component for rgb in palette for component in rgb]
     flat += [0] * (768 - len(flat))  # putpalette always wants a full 256-entry table

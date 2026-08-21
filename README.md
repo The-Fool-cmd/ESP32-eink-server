@@ -1,236 +1,327 @@
 # ESP32 E-Ink Server
 
-Render server for a TRMNL 7.5" DIY e-ink kit (ESP32-C3/ESPHome). The device
-wakes, does one `GET /image/<device_id>.png`, blits the PNG, and deep-sleeps.
-Nothing here renders on a timer — every frame is built fresh per request.
+A render server for battery-powered e-ink dashboards. A device wakes from
+deep sleep, makes one `GET /image/<device_id>.png`, blits the PNG to its
+panel, and goes back to sleep. Nothing renders on a timer — every frame is
+built fresh for the request that asked for it.
 
-Firmware/client side lives in a separate repo:
+Screens are plain HTML and CSS, screenshotted by headless Chromium and
+dithered down to whatever colors the panel can physically show. Adding a
+widget means writing a Python function and a Jinja partial; adding a whole
+new dashboard means one more template and one more dict entry.
+
+The firmware side lives in a separate repo:
 [ESP32-eink-client](https://github.com/The-Fool-cmd/ESP32-eink-client).
 
-## Architecture
+## How it works
 
-**Request flow:** Flask route (`server.py`) → widget modules build a context
-dict each → Jinja renders the device's top-level template (which includes the
-widget partials in `templates/widgets/`) → Playwright drives headless
-Chromium to screenshot that HTML/CSS layout → `dither.py` quantizes the
-full-color screenshot down to the device's exact panel palette → PNG bytes go
-back in the response.
+```
+GET /image/<device_id>.png
+        │
+        ├─ devices.py      look up the device: template, size, palette
+        ├─ widgets/*.py    each get_context() returns a dict; all merged into one
+        ├─ templates/      Jinja renders the device's screen (which includes widget partials)
+        ├─ render.py       Playwright screenshots that HTML at the device's exact viewport
+        └─ dither.py       Floyd-Steinberg quantize down to the panel palette → PNG bytes
+```
 
-Rendering full HTML/CSS through a real browser (rather than drawing with
-Pillow) means widgets are just normal web layout — flexbox, borders, fonts —
-instead of manually positioned drawing calls. Pillow's job is the last step
-only: converting Chromium's 24-bit output into what the physical panel can
-actually show.
+Rendering through a real browser rather than drawing with Pillow means
+widgets are ordinary web layout — flexbox, borders, `clip-path` — instead of
+manually positioned draw calls. Pillow only handles the final step of turning
+Chromium's 24-bit output into something the panel can display.
 
-**Dithering (`dither.py`):** the device firmware blits the PNG it's sent
-rather than doing anything sophisticated with color itself, so the PNG we
-send needs to already be exactly what the panel will display. Each device in
-`devices.py` declares a `palette` (exact list of RGB colors its panel
-supports); after the Chromium screenshot, `dither.py` quantizes the image
-down to that palette with Floyd-Steinberg error diffusion rather than a flat
-per-pixel threshold, so anti-aliased text edges become a dot-pattern stipple
-that keeps their apparent stroke weight instead of getting rounded away, and
-flat CSS colors read as believable shading even on a 6-color panel. One
-wrinkle: Chromium's antialiasing isn't clean grayscale — edge pixels carry a
-faint genuine RGB tint, which a 6-color nearest-match will happily call "red"
-or "yellow" instead of black/white, speckling every letter with a faint
-rainbow fringe. `dither.py` snaps low-saturation pixels to pure black/white
-*before* quantizing to route around this — only genuinely colored content
-(widget accent fills) goes through full 6-way dithering. `fool-nightstand`'s
-palette is just `[black, white]`, so this is mostly moot there.
+### Dithering
 
-`fool-workdesk`'s SPECTRA6 palette is the pure-saturated RGB triples
-(`(255,0,0)` red, etc.) that match the `ESP32-eink-client` firmware's own
-native `Color(r,g,b,w)` constants byte-for-byte (see that repo's
-`test.yaml`), not a "measured, close-enough" approximation of the physical
-ink — an earlier version of this file used muted/measured-looking values,
-which is worth knowing if this regresses, but matching the firmware's own
-representation exactly is the more defensible default until proven
-otherwise. **Live status as of 2026-08-08: the panel renders this design's
-geometry correctly (chamfered corners, corner brackets) but not color** —
-confirmed the server sends genuine multi-color RGB (not palette-indexed)
-PNGs matching this exact palette, so the remaining bug is believed to be in
-`ESP32-eink-client` (refresh-mode selection or its PNG color-mapping path),
-not here. Any changes to this palette should stay in sync with the CSS
-custom properties in `templates/screen_status.html` (`--c-red` etc.) — see
-that file's comment for why an inexact match speckles solid fills.
+The firmware blits the PNG it is sent, so the PNG has to already be exactly
+what the panel will show. Each device declares a `palette` in `devices.py`,
+and `dither.py` quantizes the screenshot to it with Floyd-Steinberg error
+diffusion rather than a flat per-pixel threshold: anti-aliased text keeps its
+apparent stroke weight as a stipple instead of being rounded away, and flat
+CSS colors read as believable shading even on a six-color panel.
 
-**Widgets:** each `widgets/*.py` exposes `get_context(...) -> dict`; `server.py`
-merges all of them into one context and hands it to the template. Adding a
-widget is one Python module plus one template partial.
+One wrinkle: Chromium's antialiasing isn't clean grayscale. Edge pixels carry
+a faint RGB tint that a six-color nearest-match will happily call "red",
+speckling every letter with a rainbow fringe. `dither.py` snaps
+low-saturation pixels to pure black or white *before* quantizing, so only
+genuinely colored content goes through full multi-color dithering.
 
-**Per-device canvas, variable content:** canvas size isn't hardcoded — each
-device in `devices.py` declares its own width/height, which flow into both
-the Playwright viewport and the template itself (`{{ width }}`/`{{ height }}`
-in `screen.html`), so different panels, orientations, or a portrait/
-vertically-mounted display are just a different `devices.py` entry, not a
-code change. On top of that, content like the calendar event list varies in
-length regardless of canvas size. `render.py` handles this by running a small
-JS pass after the page loads that drops any element flagged
-`data-trim-overflow` whose box would run past the canvas edge — so a template
-can list as many items as exist, at whatever size that canvas is, and only
-whole, uncut boxes ever get shown.
+## Adding a widget
 
-**Calendar:** talks to a local Radicale CalDAV instance over loopback (same
-host, so no LAN hop). Missing credentials or a Radicale failure degrades to a
-"[ CALENDAR OFFLINE ]" message rather than failing the whole request. Exactly
-one event (whichever hasn't ended yet, in chronological order — the thing
-happening now, or coming up next) is flagged `current` and rendered in
-inverse video; the rest stay plain. See "Visual theme" below for why only one
-thing is ever emphasized.
+A widget is one Python module plus one Jinja partial. The module owns the
+data, the partial owns the markup, and each device's screen template owns how
+it looks there.
 
-**Weather (`fool-entrance`):** talks to two free, keyless
-[Open-Meteo](https://open-meteo.com) APIs — the main forecast API
-(`WEATHER_LAT`/`WEATHER_LON`) and its separate Air Quality API, fetched
-independently so a failure in one only takes out its own tile, not the whole
-screen (see below). The forecast call (`forecast_days=2`, `timezone=auto`)
-gets current conditions, hourly temperature/rain-chance/humidity, and daily
-UV/wind/sunrise-sunset in one request; `forecast_days=2` rather than `1`
-because the hourly forecast strip needs "now" plus the next 6 hours, which
-can roll past midnight into tomorrow depending what time the device happens
-to render at. Same degrade-gracefully posture as calendar/uptime: missing
-lat/lon or a request failure renders "[ WEATHER OFFLINE ]" instead of
-failing the request. Shows current conditions (temperature, condition text,
-a pure-CSS/no-webfont weather icon) plus the near-term hourly strip — since
-every render happens on demand at wake-up, "current conditions as of now"
-is exactly the right freshness, not a stale live reading. The Air Quality
-tile is the one place a partial failure is visible on-screen rather than
-degrading the whole request: `widgets/weather.py`'s `_fetch_air_quality`
-catches its own errors and returns `aqi_error`, which the template renders
-as a red-bordered "LINK DOWN" tile instead of failing to render at all.
-`WEATHER_LOCATION_NAME` (optional) sets the header's location label; unset,
-it prints the lat/lon instead.
+**1. Write `widgets/<name>.py`** exposing `get_context(...) -> dict`:
 
-**Service status (`fool-workdesk`):** talks to Uptime Kuma's unauthenticated
-status-page JSON API (`/api/status-page/<slug>` +
-`/api/status-page/heartbeat/<slug>`), not its admin API — no credentials to
-manage. Same degrade-gracefully posture as calendar: missing config or a
-request failure renders "Status unavailable" instead of failing the request.
-Capped at 8 monitors (`widgets/uptime.py`'s `MAX_SERVICES`) to match the
-fixed 4x2 tile grid in `templates/screen_status.html`; add more monitors in
-Kuma freely; only the first 8 the status page returns get shown.
+```python
+from datetime import datetime
 
-**Devices:** `devices.py` maps a device id to its own template plus pixel
-dimensions — one entry per physical panel. This is the extension point for
-running more than one device at once: a second entry with its own `screen`
-template and its own width/height (e.g. swapped for a rotated/portrait
-mount, or a different panel technology entirely) works today without
-touching `server.py` or the widget modules. Widget partials
-(`templates/widgets/*.html`) are corner-positioned rather than laid out
-relative to a specific canvas size, so they're reusable across device
-templates; only the top-level per-device template needs to be authored with
-that device's dimensions, orientation, and color capability in mind.
 
-Three devices today:
-- `fool-nightstand` → `screen.html` — 800x480, plain black/white e-ink,
-  calendar + battery.
-- `fool-workdesk` → `screen_status.html` — 800x480, SPECTRA6 6-color e-ink
-  (black/white/red/yellow/green/blue), service status + battery. Its
-  `<style>` block uses flat, saturated colors rather than the grayscale
-  hatch-pattern trick `screen.html` uses for "battery low" — the panel
-  dithers whatever RGB it's sent to its nearest of the 6 primaries, so exact
-  hex values don't matter, just staying flat/saturated (no gradients, which
-  would speckle).
-- `fool-entrance` → `screen_weather.html` — 480x800, the same SPECTRA6 panel
-  as `fool-workdesk` but portrait-mounted, weather + battery. Unlike
-  `fool-workdesk`'s white tiles-on-black, its stat tiles stay black with a
-  colored corner-tick accent (a full colored border reads much lower
-  contrast than white on this panel's black canvas) — color plus a
-  plain-text bracket label either way, never color-alone, same rule as the
-  uptime status tiles. UV and Air Quality both use that accent for their
-  actual risk/status level; Air Quality's failure state (red border,
-  "LINK DOWN") is the one place on this device a partial failure shows on
-  its own tile rather than degrading the whole screen — see
-  `widgets/weather.py`'s `_uv_category`/`_aqi_category`/`_fetch_air_quality`.
+def get_context(now: datetime | None = None) -> dict:
+    now = now or datetime.now()
+    return {
+        "time": now.strftime("%H:%M"),
+        "date": now.strftime("%A, %B %-d"),
+    }
+```
 
-The battery widget partial itself (`templates/widgets/battery.html`) is
-shared across all three — it only emits a `level-{high,medium,low}` class,
-the color/pattern decision lives in each device's own template.
+Conventions worth following:
 
-**Visual theme:** both devices share one HUD/terminal design language —
-monospace headers and technical readouts (dates, times, status, the
-battery/uptime %), chamfered (not rounded) card corners via `clip-path`, and
-two opposing corner brackets framing the canvas. Status is never
-color-alone: every service tile carries a plain-text bracket label
-(`[ ONLINE ]`, `[ OFFLINE ]`, …) alongside its color — a 6-color panel can't
-rely on hue alone for colorblind readers. Emphasis is deliberately spent on
-one thing at a time rather than decorating everything equally: the
-calendar's current/next event inverts to white-on-black; a `status-down`
-service tile is the one place text is allowed to wear its status color
-(red), a considered exception to keeping color on marks and text in plain
-ink everywhere else. The battery meter is 5 discrete segments, not a smooth
-fill — more legible at this size once dithered, and reads as an HUD/LED
-meter rather than a phone-style icon. Colors used as *fills* (battery
-segments, tile accents) are copy-pasted from `devices.py`'s palette
-verbatim, not just "close" — a fill that's off by even a few RGB values from
-the real palette entry stops being an exact match for `dither.py`'s
-quantizer and speckles with stray colors instead of staying flat (caught by
-rendering and zooming in, not obvious at a glance — see git history if this
-regresses).
+- **Namespace your keys.** `server.py` merges every widget's dict into one
+  context, so two widgets returning `date_label` will silently clobber each
+  other. Prefix anything generic (`weather_date_label`, `battery_pct`).
+- **Degrade, don't raise.** A widget that talks to the network catches its
+  own failures and returns an error key (`calendar_error`, `weather_error`)
+  that the partial renders as an "offline" state. One unreachable service
+  should not cost the device its whole screen.
+- **Read config from the environment**, with a sensible default or a clear
+  "not configured" context when it's missing. See `widgets/uptime.py`.
+- **Accept injectable arguments** (`now`, `url`, …) defaulting to the real
+  source, so the widget can be rendered deterministically.
 
-The two devices diverge on light vs. dark: `fool-nightstand` (mono — it's
-physically incapable of any hue, so this is the only lever it has) stays
-white-canvas with black chrome and a full-bleed black title bar; the user
-considers this "already dark mode" in feel via that bar plus the
-current-event inverse-video treatment, so it's deliberately left alone.
-`fool-workdesk` (SPECTRA6) is genuinely dark-canvas: black background and
-chrome, but the service tiles themselves stay white "panels" rather than
-going all-black too — keeps ink coverage down on a reflective panel (a full
-black canvas costs real refresh time/ghosting risk) and the status colors
-read better against black than they ever did against white (yellow
-especially — the one contrast WARN the dataviz palette validator flagged
-earlier effectively disappears against a dark surface). Its two purely
-decorative accents (the corner brackets, and a yellow rule under the title
-in place of a same-color-as-canvas title bar) use the user's stated
-preferred accent color, yellow — kept off every tile so it's never
-confused with `status-pending`'s yellow, which is a status color, not
-decoration.
+`widgets/clock.py` is the smallest complete example of the contract.
 
-## Deployment
+**2. Write `templates/widgets/<name>.html`** — markup and class names only,
+no styling:
 
-Runs as the systemd unit `esp32-eink-server`, declared in
-`/etc/nixos/hosts/foolaiserver/host_config.nix` (section 5f) on this same
-host. Deliberately *not* a podman container: this is a plain Python project
-living at a mutable path (`/var/lib/esp32-eink-server`) that gets edited and
-`systemctl restart`ed directly — never rebuilt through Nix. Nix's only job is
-supplying the Python interpreter and a NixOS-patched Playwright/Chromium.
+```html
+<div class="widget-clock">
+  <div class="clock-time">{{ time }}</div>
+  <div class="clock-date">{{ date }}</div>
+</div>
+```
 
-To deploy a change: edit (or `git pull`) here, then
-`sudo systemctl restart esp32-eink-server`.
+Branch on every state the module can return, including its error and empty
+states — `templates/widgets/calendar.html` covers all three.
+
+If the widget renders a variable-length list, mark each repeated element
+`data-trim-overflow`. After the page loads, `render.py` runs a small JS pass
+that removes any flagged element whose box runs past the canvas edge, so a
+partial can emit as many items as exist and only whole, uncut ones survive.
+See `templates/widgets/calendar.html`.
+
+**3. Merge it into the context** in `server.py`:
+
+```python
+ctx.update(clock.get_context())
+```
+
+Add the same line to `scripts/render_screen.py` so the preview script stays
+in sync.
+
+**4. Include it** in whichever screens should show it, and style it in each
+of those screens' `<style>` blocks:
+
+```html
+{% include "widgets/clock.html" %}
+```
+
+Styling lives in the screen, not the partial, on purpose: the same battery
+partial renders as white-on-black inside one device's header bar and as
+colored segments on another's dark canvas, without either device needing its
+own copy of the markup.
+
+## Adding a dashboard
+
+A dashboard is a top-level template plus one entry in `devices.py`. No
+changes to `server.py` or to any widget module.
+
+**1. Add the device** to `DEVICES` in `devices.py`:
+
+```python
+"kitchen-panel": {
+    "screen": "screen_kitchen.html",
+    "width": 480,
+    "height": 800,
+    "palette": _SPECTRA6,   # or _MONO, or your own list of RGB triples
+},
+```
+
+The key is the device id the firmware requests. `width`/`height` are the
+panel's pixels in the orientation it is mounted — a portrait-mounted panel is
+just a swapped width and height, not a code change. `palette` is optional;
+omit it to serve an undithered full-color PNG.
+
+**2. Write `templates/screen_<name>.html`.** It owns the whole canvas: the
+`<style>` block, the layout, and which widget partials it includes.
+
+```html
+<html>
+<head><style>
+  html, body {
+    margin: 0; padding: 0;
+    width: {{ width }}px;
+    height: {{ height }}px;
+  }
+  /* … styling for the partials you include below … */
+</style></head>
+<body>
+  {% include "widgets/battery.html" %}
+  {% include "widgets/clock.html" %}
+  {% if updated_at %}
+  <div class="updated-at">Updated {{ updated_at }}</div>
+  {% endif %}
+</body>
+</html>
+```
+
+Use `{{ width }}` and `{{ height }}` rather than hardcoded pixels — both are
+passed in from the device entry, and hardcoding them means the template
+silently breaks the day it is reused on another panel.
+
+**3. Preview it** without touching the running service:
+
+```
+nix develop --command python3 scripts/render_screen.py kitchen-panel
+```
+
+That writes `out.png`. Open it, and zoom in before trusting a color — see the
+rules below.
+
+### Rules for a color panel
+
+If the device has a palette, the template has to cooperate with the
+quantizer:
+
+- **Copy fill colors verbatim from the palette in `devices.py`.** An exact
+  palette match quantizes with zero error and stays a flat fill. A
+  near-miss — a "close enough" hex picked independently — gets
+  Floyd-Steinberg'd against the real palette and speckles with stray flecks.
+  It looks fine at a glance and obvious at 400%.
+- **No gradients or gray tones** on a palette without gray. Mid-gray sits
+  about equally near several primaries, so it dithers into confetti rather
+  than a clean stipple. Get de-emphasis from font size or weight instead.
+- **No webfonts.** Every render is an on-demand screenshot, so an external
+  font fetch puts network latency and a new failure mode on the request path.
+  Same for emoji and icon fonts: the weather icons are pure CSS shapes.
+- **Watch ink coverage.** Large solid black fills cost refresh time on a
+  reflective panel. The dark-canvas screens here keep their text-dense
+  surfaces light and only darken the surrounding frame.
+
+### Shared visual language
+
+The screens in this repo share one HUD/terminal look, which is worth matching
+if you add another: monospace for technical readouts (dates, times, status,
+percentages) and body sans-serif for free text; chamfered rather than rounded
+card corners via `clip-path`; two opposing corner brackets framing the canvas;
+and yellow as the decorative accent, kept off anything that carries a status
+so it is never confused with a status color.
+
+Two rules do real work beyond taste:
+
+- **Status is never color alone.** Every status-bearing element also carries
+  a plain-text bracket label — `[ ONLINE ]`, `[ OFFLINE ]`, `[ HIGH ]` —
+  because a six-color panel can't rely on hue for colorblind readers.
+- **Emphasis is spent on one thing.** The calendar inverts exactly one
+  event, the one in progress or next up. Everything else stays plain. A
+  screen that emphasizes everything emphasizes nothing, and this is a glance
+  surface.
+
+The one deliberate exception is an offline service tile, where the text
+itself goes red: an alert is not plain identity, and alert text in the alarm
+color is a standard, legible convention.
+
+## Example dashboards
+
+The three devices in `devices.py` are the author's own, kept in the repo as
+working examples of the patterns above rather than as anything you'd deploy
+unchanged.
+
+| Device | Screen | Panel | Shows |
+|---|---|---|---|
+| `fool-nightstand` | `screen.html` | 800x480 mono | Calendar + battery |
+| `fool-workdesk` | `screen_status.html` | 800x480 SPECTRA6 | Service status + battery |
+| `fool-entrance` | `screen_weather.html` | 480x800 SPECTRA6, portrait | Weather + battery |
+
+Between them they cover the cases you're likely to hit: a one-bit panel that
+has no lever but light and dark, a six-color panel on a dark canvas with
+white tiles, and the same six-color panel rotated to portrait with a
+different tile treatment. The battery partial is shared by all three and
+styled differently in each.
+
+The widgets they use:
+
+- **`calendar`** — reads a CalDAV server (Radicale, by default over
+  loopback). Flags exactly one event as `current`.
+- **`uptime`** — reads [Uptime Kuma](https://github.com/louislam/uptime-kuma)'s
+  unauthenticated status-page JSON API, so there are no credentials to
+  manage. Capped at `MAX_SERVICES` (8) to match a fixed 4x2 tile grid.
+- **`weather`** — reads [Open-Meteo](https://open-meteo.com), which is free
+  and needs no API key. One request covers current conditions, an hourly
+  strip, and the day's UV, wind and sun times.
+- **`battery`** — renders a percentage passed by the device in the query
+  string (`?battery=87`) as five discrete segments.
+- **`clock`** — minimal reference widget, not wired into any screen.
 
 ## Local dev
 
-`nix develop` opens a shell pinned to the same nixpkgs (`nixos-26.05`) as the
-deployed service, so Python/Playwright/Chromium versions match exactly.
+`nix develop` opens a shell pinned to the same nixpkgs as the deployed
+service, so the Python, Playwright and Chromium versions match exactly.
 
 ```
 nix develop --command python3 scripts/render_screen.py [device_id]
 ```
 
-renders one frame to `out.png` without touching the live service.
-`device_id` defaults to `fool-nightstand`; pass `fool-workdesk` or
-`fool-entrance` to preview the SPECTRA6 templates instead.
+renders one frame to `out.png` without touching the running service.
+`device_id` defaults to `fool-nightstand`.
+
+To run the server itself:
+
+```
+nix develop --command python3 server.py    # listens on :8000
+```
+
+Then fetch a frame the way a device would:
+
+```
+curl -o out.png 'http://localhost:8000/image/fool-nightstand.png?battery=87'
+```
+
+## Deployment
+
+Runs as a systemd unit on the same host as the calendar and status services
+it reads. It is deliberately not containerized: this is a plain Python
+project living at a mutable path that gets edited and restarted in place.
+Nix's only job is supplying the interpreter and a patched Playwright/Chromium.
+
+```ini
+[Service]
+WorkingDirectory=/var/lib/esp32-eink-server
+EnvironmentFile=/var/lib/esp32-eink-server/secrets.env
+ExecStart=/path/to/nix/python3 /var/lib/esp32-eink-server/server.py
+```
+
+To deploy a change: `git pull` in the working directory, then
+`systemctl restart esp32-eink-server`.
+
+## Configuration
+
+All configuration is environment variables, loaded from `secrets.env` (which
+is gitignored). Copy `secrets.env.example` to `secrets.env` and fill it in;
+it must sit next to `server.py`, at the path the unit's `EnvironmentFile=`
+points at.
+
+| Variable | Used by | Notes |
+|---|---|---|
+| `RADICALE_URL` | calendar | Defaults to `http://127.0.0.1:5232` |
+| `RADICALE_USERNAME` / `RADICALE_PASSWORD` | calendar | Unset renders "[ CALENDAR OFFLINE ]" |
+| `UPTIME_KUMA_URL` | uptime | Base URL of the Kuma instance |
+| `UPTIME_KUMA_STATUS_SLUG` | uptime | Status page slug, not a URL |
+| `WEATHER_LAT` / `WEATHER_LON` | weather | Decimal degrees |
+| `WEATHER_LOCATION_NAME` | weather | Optional header label; falls back to lat/lon |
+
+Every one of these is optional in the sense that missing config degrades to
+that widget's "offline" state rather than failing the render.
 
 ## Dependencies
 
 | Package | Used for |
 |---|---|
-| Flask | HTTP server, one route per device |
-| Jinja2 | HTML templating for widgets |
+| Flask | HTTP server, one route serving every device |
+| Jinja2 | HTML templating for screens and widgets |
 | Playwright (Chromium) | renders the HTML/CSS layout to a PNG screenshot |
-| caldav | talks to Radicale for calendar events |
-| Pillow | quantizes/dithers the Chromium screenshot down to each device's panel palette (`dither.py`) |
+| Pillow | quantizes and dithers that screenshot to each panel's palette |
+| caldav | reads calendar events |
 
-`widgets/uptime.py` and `widgets/weather.py` both talk to their APIs over plain
-`urllib.request` (stdlib) rather than adding a `requests` dependency — no new
-package needed. Open-Meteo needs no API key, so `widgets/weather.py` has no
-new dependency to manage on the auth side either.
-
-## Secrets
-
-`secrets.env` (gitignored) holds `RADICALE_USERNAME` / `RADICALE_PASSWORD`,
-`UPTIME_KUMA_URL` / `UPTIME_KUMA_STATUS_SLUG`, and `WEATHER_LAT` /
-`WEATHER_LON`, loaded by systemd's `EnvironmentFile=`. Copy
-`secrets.env.example` to get started — it must live at
-`/var/lib/esp32-eink-server/secrets.env`, not wherever the repo happens to be
-checked out.
+`widgets/uptime.py` and `widgets/weather.py` use stdlib `urllib.request`
+rather than pulling in `requests`.

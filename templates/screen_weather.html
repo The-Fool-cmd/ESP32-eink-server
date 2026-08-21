@@ -4,21 +4,17 @@
 <meta charset="utf-8">
 <style>
   :root {
-    /* Must equal devices.py's _SPECTRA6 palette exactly — an earlier design
-       pass for this device used muted mockup colors (#FFCC00/#0057B8/
-       #00953B); those are close but not exact, and dither.py's quantizer
-       speckles anything that isn't a byte-for-byte palette match instead of
-       staying a flat fill once run through Floyd-Steinberg. See
-       screen_status.html's matching comment. */
+    /* Must equal devices.py's _SPECTRA6 palette exactly: dither.py's
+       quantizer speckles anything that isn't a byte-for-byte palette match
+       instead of leaving it a flat fill. See screen_status.html's matching
+       comment. */
     --c-red: #ff0000;
     --c-yellow: #ffff00;
     --c-green: #00ff00;
     --c-blue: #0000ff;
-    /* Deliberately not the mockup's Chakra Petch/Share Tech Mono (Google
-       Fonts) — every render is a server-side headless-Chromium screenshot
-       done on demand per request, so an external font fetch would add
-       network latency/fragility to that path. Every other device uses only
-       this Nix-supplied, offline-guaranteed stack; kept consistent here. */
+    /* Locally available fonts only, no webfonts: every render is an
+       on-demand headless-Chromium screenshot, so an external font fetch
+       would put network latency and a failure mode on that path. */
     --mono: "DejaVu Sans Mono", monospace;
   }
   html, body {
@@ -46,11 +42,10 @@
   .widget-weather {
     box-sizing: border-box;
     height: 100%;
-    /* Extra bottom padding (not the usual uniform amount) reserves real
-       clearance for the corner bracket + .updated-at footer, which are
-       both absolutely positioned and don't participate in this flex
-       layout — without it, the grid below is free to grow right into
-       that zone. */
+    /* Extra bottom padding reserves clearance for the corner bracket and
+       .updated-at footer: both are absolutely positioned and don't
+       participate in this flex layout, so the grid below would otherwise
+       grow straight into that zone. */
     padding: 26px 26px 56px;
     display: flex;
     flex-direction: column;
@@ -58,8 +53,7 @@
 
   .weather-header {
     /* Leaves room on the right for the shared battery widget (absolute,
-       top:18/right:26 — see .widget-battery below), same corner every
-       other device uses it in. */
+       top:18/right:26 — see .widget-battery below). */
     padding-right: 90px;
   }
   .weather-location {
@@ -139,9 +133,9 @@
     margin-top: 2px;
   }
 
-  /* Pure CSS/shape icons — no emoji or icon-font dependency, so rendering
-     never depends on a color-emoji font being present in the Nix/Chromium
-     closure. Fills stay flat/saturated per the dithering rule above. */
+  /* Pure CSS shapes, so rendering never depends on an emoji or icon font
+     being installed. Fills stay flat and saturated per the palette rule
+     above. */
   .weather-icon {
     width: 64px;
     height: 64px;
@@ -155,9 +149,8 @@
     border-radius: 50%;
     background: var(--c-yellow);
   }
-  /* Four explicit rays, not ::before/::after (only two pseudo-elements are
-     available per node) — an earlier version used just those two and only
-     got top/bottom rays, reading as a lollipop rather than a sun. */
+  /* Four explicit ray elements rather than ::before/::after, which only
+     give two per node — not enough for a sun. */
   .icon-ray {
     display: none;
     position: absolute;
@@ -258,10 +251,8 @@
     justify-content: center;
   }
   .bar-track {
-    /* Fixed and narrow, not 100% of the column — a full-width bar per
-       column read as a thick solid block; this is close to the mockup's
-       own bar width (a little wider than the temp digits above it), with
-       the column itself just providing the spacing between bars. */
+    /* Fixed and narrow rather than the full column width, which reads as a
+       solid block; the column itself just provides the spacing. */
     width: 20px;
     height: 78px;
     display: flex;
@@ -321,11 +312,9 @@
 
   .weather-grid {
     flex: 1;
-    /* Flex items default to min-height:auto (their content's min size),
-       which lets them overflow a flex parent that doesn't actually have
-       room for that — exactly what let this grid grow past the container
-       and under the footer. min-height:0 makes it honor flex:1's share
-       instead. */
+    /* Flex items default to min-height:auto, letting them overflow a parent
+       with no room for them; min-height:0 makes this honor its flex:1
+       share instead. */
     min-height: 0;
     margin-top: 20px;
     display: grid;
@@ -344,10 +333,10 @@
     justify-content: center;
     position: relative;
   }
-  /* Corner ticks, not a full border-color swap, so the tile stays readable
-     on the black canvas (a full colored border on black is much lower
-     contrast than white) while still status-coding via color — same "color
-     plus a plain-text label, never color alone" rule as every other device. */
+  /* Corner ticks rather than a full border-color swap: a colored border on
+     black is much lower contrast than white, so the tile keeps its white
+     outline and takes its status color in the ticks. Color always comes
+     with a plain-text label, same rule as every other device. */
   .weather-tile::before, .weather-tile::after {
     content: "";
     position: absolute;
@@ -383,9 +372,8 @@
   .tile-value {
     font-family: var(--mono);
     font-weight: 700;
-    /* Not larger — the Sun tile puts two of these side by side (Rise/Set)
-       in one ~200px-wide tile; anything bigger and "06:25"/"20:11" collide
-       into each other with no gap between them. */
+    /* Not larger: the Sun tile puts two of these side by side in one
+       ~200px-wide tile, and anything bigger collides. */
     font-size: 28px;
     color: #fff;
   }
@@ -399,19 +387,17 @@
     justify-content: space-between;
     align-items: baseline;
   }
-  /* min-width:0 lets these actually shrink under space-between instead of
-     overflowing past each other when their combined content is close to
-     the tile's width — see .tile-value's comment above. */
+  /* min-width:0 lets these shrink under space-between instead of
+     overflowing past each other — see .tile-value above. */
   .sun-row > div { min-width: 0; }
   .wind-row {
     display: flex;
     align-items: center;
     justify-content: space-between;
   }
-  /* Buffer box, not the arrow's own bounding box — a rotated 20x20 square's
-     diagonal (~28px) plus the arrowhead tip sticking past that already
-     exceeds 20px, so without this the rotated shape pokes past the tile's
-     own right/bottom border instead of staying clear of it. */
+  /* Buffer box rather than the arrow's own bounding box: a rotated 20x20
+     square's diagonal is ~28px, plus the arrowhead tip, so the rotated
+     shape would otherwise poke past the tile border. */
   .wind-arrow-wrap {
     width: 34px;
     height: 34px;
@@ -453,7 +439,7 @@
     background: var(--c-green);
   }
 
-  /* Sits in the top margin, same corner every other device uses it in. */
+  /* Sits in the top margin, same corner every device uses it in. */
   .widget-battery {
     position: absolute;
     top: 18px;
@@ -500,9 +486,8 @@
 
   .updated-at {
     position: absolute;
-    /* bottom:40 (not less) clears the corner bracket, which occupies the
-       bottom:10-36 / right:10-36 box — see screen_status.html's matching
-       value. */
+    /* Clears the corner bracket, which occupies the bottom:10-36 /
+       right:10-36 box — see screen_status.html's matching value. */
     bottom: 40px;
     right: 16px;
     font-family: var(--mono);

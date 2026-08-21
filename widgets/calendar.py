@@ -9,7 +9,8 @@ def get_context(now: datetime | None = None) -> dict:
     start = datetime.combine(now.date(), datetime.min.time())
     end = start + timedelta(days=1)
 
-    # Loopback, not the LAN hostname: this server and Radicale run on the same host.
+    # Defaults to loopback, on the assumption that the CalDAV server runs
+    # on this same host; override with RADICALE_URL if it doesn't.
     url = os.environ.get("RADICALE_URL", "http://127.0.0.1:5232")
     username = os.environ.get("RADICALE_USERNAME")
     password = os.environ.get("RADICALE_PASSWORD")
@@ -43,10 +44,10 @@ def get_context(now: datetime | None = None) -> dict:
                     else:
                         time_label = dtstart.strftime("%H:%M")
 
-                    # end-of-day for all-day events (they're "current" all day);
-                    # dtend if the event has one; otherwise treat as a point in
-                    # time (its own start) — used below to pick the one event
-                    # to visually emphasize, not shown to the template directly.
+                    # Used only to pick the event to emphasize (below),
+                    # never handed to the template: all-day events run to
+                    # end-of-day, timed events to their dtend, and an event
+                    # with no dtend counts as a point in time.
                     if all_day:
                         end_dt = datetime.combine(dtstart, datetime.min.time()) + timedelta(days=1)
                     elif dtend:
@@ -65,10 +66,9 @@ def get_context(now: datetime | None = None) -> dict:
 
         raw_events.sort(key=lambda e: e["_sort"])
 
-        # Emphasize exactly one event: the first one (in chronological order)
-        # that hasn't ended yet — "the one to look at right now," whether
-        # that's something currently in progress or the next thing coming up.
-        # Once everything today has already ended, nothing is emphasized.
+        # Emphasize exactly one event: the first one, chronologically, that
+        # hasn't ended yet — whatever is in progress, or next up. Once
+        # everything today has ended, nothing is emphasized.
         current_idx = next((i for i, e in enumerate(raw_events) if e["_end"] > now), None)
 
         events = [
@@ -76,5 +76,8 @@ def get_context(now: datetime | None = None) -> dict:
             for i, e in enumerate(raw_events)
         ]
         return {"events": events, "calendar_error": None, "date_label": date_label}
+    # Broad on purpose, same posture as the other widgets: a CalDAV or
+    # parsing failure degrades to the "unavailable" widget state rather than
+    # failing the whole render.
     except Exception as exc:
         return {"events": [], "calendar_error": str(exc), "date_label": date_label}

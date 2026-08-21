@@ -11,7 +11,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 from devices import DEVICES
 from render import render_screen
-from widgets import battery, calendar, uptime
+from widgets import battery, calendar, uptime, weather
 
 
 def main():
@@ -21,6 +21,7 @@ def main():
     ctx = battery.get_context(87)
     ctx.update(calendar.get_context())
     ctx.update(uptime.get_context())
+    ctx.update(weather.get_context())
     ctx.update(updated_at=datetime.now().strftime("%a %H:%M"))
     ctx.update(width=device["width"], height=device["height"])
 

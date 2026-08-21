@@ -6,7 +6,7 @@ from flask import Flask, Response, abort, request
 
 from devices import DEVICES
 from render import Renderer
-from widgets import battery, calendar, uptime
+from widgets import battery, calendar, uptime, weather
 
 app = Flask(__name__)
 renderer = Renderer()
@@ -22,6 +22,7 @@ def image(device_id):
     ctx = battery.get_context(request.args.get("battery", type=int))
     ctx.update(calendar.get_context())
     ctx.update(uptime.get_context())
+    ctx.update(weather.get_context())
     ctx.update(updated_at=datetime.now().strftime("%a %H:%M"))
     ctx.update(width=device["width"], height=device["height"])
 

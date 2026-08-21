@@ -33,4 +33,12 @@ DEVICES = {
         "height": 480,
         "palette": _SPECTRA6,
     },
+    "fool-entrance": {
+        # Same physical 7.3" SPECTRA6 panel as fool-workdesk, portrait-mounted
+        # (800x480 rotated) rather than landscape.
+        "screen": "screen_weather.html",
+        "width": 480,
+        "height": 800,
+        "palette": _SPECTRA6,
+    },
 }

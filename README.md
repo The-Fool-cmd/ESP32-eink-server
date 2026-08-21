@@ -79,6 +79,28 @@ happening now, or coming up next) is flagged `current` and rendered in
 inverse video; the rest stay plain. See "Visual theme" below for why only one
 thing is ever emphasized.
 
+**Weather (`fool-entrance`):** talks to two free, keyless
+[Open-Meteo](https://open-meteo.com) APIs — the main forecast API
+(`WEATHER_LAT`/`WEATHER_LON`) and its separate Air Quality API, fetched
+independently so a failure in one only takes out its own tile, not the whole
+screen (see below). The forecast call (`forecast_days=2`, `timezone=auto`)
+gets current conditions, hourly temperature/rain-chance/humidity, and daily
+UV/wind/sunrise-sunset in one request; `forecast_days=2` rather than `1`
+because the hourly forecast strip needs "now" plus the next 6 hours, which
+can roll past midnight into tomorrow depending what time the device happens
+to render at. Same degrade-gracefully posture as calendar/uptime: missing
+lat/lon or a request failure renders "[ WEATHER OFFLINE ]" instead of
+failing the request. Shows current conditions (temperature, condition text,
+a pure-CSS/no-webfont weather icon) plus the near-term hourly strip — since
+every render happens on demand at wake-up, "current conditions as of now"
+is exactly the right freshness, not a stale live reading. The Air Quality
+tile is the one place a partial failure is visible on-screen rather than
+degrading the whole request: `widgets/weather.py`'s `_fetch_air_quality`
+catches its own errors and returns `aqi_error`, which the template renders
+as a red-bordered "LINK DOWN" tile instead of failing to render at all.
+`WEATHER_LOCATION_NAME` (optional) sets the header's location label; unset,
+it prints the lat/lon instead.
+
 **Service status (`fool-workdesk`):** talks to Uptime Kuma's unauthenticated
 status-page JSON API (`/api/status-page/<slug>` +
 `/api/status-page/heartbeat/<slug>`), not its admin API — no credentials to
@@ -99,17 +121,31 @@ relative to a specific canvas size, so they're reusable across device
 templates; only the top-level per-device template needs to be authored with
 that device's dimensions, orientation, and color capability in mind.
 
-Two devices today, both 800x480 but different panel technology:
-- `fool-nightstand` → `screen.html` — plain black/white e-ink, calendar + battery.
-- `fool-workdesk` → `screen_status.html` — SPECTRA6 6-color e-ink (black/
-  white/red/yellow/green/blue), service status + battery. Its `<style>`
-  block uses flat, saturated colors rather than the grayscale hatch-pattern
-  trick `screen.html` uses for "battery low" — the panel dithers whatever
-  RGB it's sent to its nearest of the 6 primaries, so exact hex values don't
-  matter, just staying flat/saturated (no gradients, which would speckle).
-  The battery widget partial itself (`templates/widgets/battery.html`) is
-  shared between both — it only emits a `level-{high,medium,low}` class,
-  the color/pattern decision lives in each device's own template.
+Three devices today:
+- `fool-nightstand` → `screen.html` — 800x480, plain black/white e-ink,
+  calendar + battery.
+- `fool-workdesk` → `screen_status.html` — 800x480, SPECTRA6 6-color e-ink
+  (black/white/red/yellow/green/blue), service status + battery. Its
+  `<style>` block uses flat, saturated colors rather than the grayscale
+  hatch-pattern trick `screen.html` uses for "battery low" — the panel
+  dithers whatever RGB it's sent to its nearest of the 6 primaries, so exact
+  hex values don't matter, just staying flat/saturated (no gradients, which
+  would speckle).
+- `fool-entrance` → `screen_weather.html` — 480x800, the same SPECTRA6 panel
+  as `fool-workdesk` but portrait-mounted, weather + battery. Unlike
+  `fool-workdesk`'s white tiles-on-black, its stat tiles stay black with a
+  colored corner-tick accent (a full colored border reads much lower
+  contrast than white on this panel's black canvas) — color plus a
+  plain-text bracket label either way, never color-alone, same rule as the
+  uptime status tiles. UV and Air Quality both use that accent for their
+  actual risk/status level; Air Quality's failure state (red border,
+  "LINK DOWN") is the one place on this device a partial failure shows on
+  its own tile rather than degrading the whole screen — see
+  `widgets/weather.py`'s `_uv_category`/`_aqi_category`/`_fetch_air_quality`.
+
+The battery widget partial itself (`templates/widgets/battery.html`) is
+shared across all three — it only emits a `level-{high,medium,low}` class,
+the color/pattern decision lives in each device's own template.
 
 **Visual theme:** both devices share one HUD/terminal design language —
 monospace headers and technical readouts (dates, times, status, the
@@ -172,8 +208,8 @@ nix develop --command python3 scripts/render_screen.py [device_id]
 ```
 
 renders one frame to `out.png` without touching the live service.
-`device_id` defaults to `fool-nightstand`; pass `fool-workdesk` to preview the
-color status template instead.
+`device_id` defaults to `fool-nightstand`; pass `fool-workdesk` or
+`fool-entrance` to preview the SPECTRA6 templates instead.
 
 ## Dependencies
 
@@ -185,13 +221,16 @@ color status template instead.
 | caldav | talks to Radicale for calendar events |
 | Pillow | quantizes/dithers the Chromium screenshot down to each device's panel palette (`dither.py`) |
 
-`widgets/uptime.py` talks to Uptime Kuma over plain `urllib.request` (stdlib)
-rather than adding a `requests` dependency — no new package needed.
+`widgets/uptime.py` and `widgets/weather.py` both talk to their APIs over plain
+`urllib.request` (stdlib) rather than adding a `requests` dependency — no new
+package needed. Open-Meteo needs no API key, so `widgets/weather.py` has no
+new dependency to manage on the auth side either.
 
 ## Secrets
 
-`secrets.env` (gitignored) holds `RADICALE_USERNAME` / `RADICALE_PASSWORD`
-plus `UPTIME_KUMA_URL` / `UPTIME_KUMA_STATUS_SLUG`, loaded by systemd's
-`EnvironmentFile=`. Copy `secrets.env.example` to get started — it must live
-at `/var/lib/esp32-eink-server/secrets.env`, not wherever the repo happens to
-be checked out.
+`secrets.env` (gitignored) holds `RADICALE_USERNAME` / `RADICALE_PASSWORD`,
+`UPTIME_KUMA_URL` / `UPTIME_KUMA_STATUS_SLUG`, and `WEATHER_LAT` /
+`WEATHER_LON`, loaded by systemd's `EnvironmentFile=`. Copy
+`secrets.env.example` to get started — it must live at
+`/var/lib/esp32-eink-server/secrets.env`, not wherever the repo happens to be
+checked out.

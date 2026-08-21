@@ -1,0 +1,103 @@
+<div class="widget-weather">
+  <div class="weather-header">
+    <div class="weather-location">{{ location_name }}</div>
+    <div class="weather-date">{{ weather_date_label }}</div>
+  </div>
+  <div class="weather-divider">
+    <div class="weather-divider-chip"></div>
+    <div class="weather-divider-line"></div>
+  </div>
+
+  {% if weather_error %}
+  <div class="weather-error">[ WEATHER OFFLINE ]</div>
+  {% else %}
+  <div class="weather-now">
+    <div>
+      <div class="now-label">NOW</div>
+      <div class="now-temp">{{ now_temp }}<span class="now-unit">&deg;C</span></div>
+      <div class="now-condition">{{ now_condition }}</div>
+    </div>
+    <div class="weather-icon icon-{{ now_icon }}">
+      <div class="icon-shape"></div>
+      <div class="icon-ray ray-n"></div>
+      <div class="icon-ray ray-s"></div>
+      <div class="icon-ray ray-e"></div>
+      <div class="icon-ray ray-w"></div>
+    </div>
+  </div>
+
+  <div class="section-heading">
+    <span>Hourly Forecast</span>
+    <div class="section-rule"></div>
+  </div>
+  <div class="hourly-box">
+    <div class="hourly-bars">
+      {% for bar in hourly_bars %}
+      <div class="hourly-col">
+        <div class="hourly-temp">{{ bar.temp }}&deg;</div>
+        <div class="bar-track-wrap"><div class="bar-track"><div class="bar-fill" style="height: {{ bar.bar_pct }}%;"></div></div></div>
+      </div>
+      {% endfor %}
+    </div>
+    <div class="hourly-rule"></div>
+    <div class="hourly-labels">
+      {% for bar in hourly_bars %}
+      <div class="hourly-col">
+        <div class="hourly-hour">{{ bar.label }}</div>
+        <div class="hourly-precip">{{ bar.precip }}%</div>
+      </div>
+      {% endfor %}
+    </div>
+  </div>
+
+  <div class="precip-peak">
+    <div class="precip-peak-label">Precip Peak</div>
+    <div class="precip-peak-value">{{ precip_peak }}% <span>at {{ precip_peak_hour }}</span></div>
+  </div>
+
+  <div class="weather-grid">
+    <div class="weather-tile tile-yellow">
+      <div class="tile-label">Sun</div>
+      <div class="sun-row">
+        <div>
+          <div class="tile-sublabel">Rise</div>
+          <div class="tile-value">{{ sunrise }}</div>
+        </div>
+        <div>
+          <div class="tile-sublabel">Set</div>
+          <div class="tile-value">{{ sunset }}</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="weather-tile tile-blue">
+      <div class="tile-label">Wind</div>
+      <div class="wind-row">
+        <div>
+          <div class="tile-value">{{ wind_max }}<span class="unit">km/h</span></div>
+          <div class="tile-sublabel">{{ wind_dir }} &middot; gust {{ wind_gust }}</div>
+        </div>
+        <div class="wind-arrow-wrap"><div class="wind-arrow" style="transform: rotate({{ wind_dir_deg }}deg);"></div></div>
+      </div>
+    </div>
+
+    <div class="weather-tile tile-green">
+      <div class="tile-label">Humidity</div>
+      <div class="tile-value">{{ humidity_avg }}<span class="unit">%</span></div>
+      <div class="humidity-meter">
+        {% for i in range(10) %}
+        <div class="humidity-segment{{ ' filled' if i < humidity_segments else '' }}"></div>
+        {% endfor %}
+      </div>
+    </div>
+
+    <div class="weather-tile tile-{{ uv_level }}">
+      <div class="tile-label">UV Index</div>
+      <div class="uv-row">
+        <div class="tile-value">{{ uv_index }}</div>
+        <div class="tile-sublabel">[ {{ uv_label }} ]</div>
+      </div>
+    </div>
+  </div>
+  {% endif %}
+</div>

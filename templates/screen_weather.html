@@ -1,0 +1,523 @@
+<!doctype html>
+<html>
+<head>
+<meta charset="utf-8">
+<style>
+  :root {
+    /* Must equal devices.py's _SPECTRA6 palette exactly — an earlier design
+       pass for this device used muted mockup colors (#FFCC00/#0057B8/
+       #00953B); those are close but not exact, and dither.py's quantizer
+       speckles anything that isn't a byte-for-byte palette match instead of
+       staying a flat fill once run through Floyd-Steinberg. See
+       screen_status.html's matching comment. */
+    --c-red: #ff0000;
+    --c-yellow: #ffff00;
+    --c-green: #00ff00;
+    --c-blue: #0000ff;
+    /* Deliberately not the mockup's Chakra Petch/Share Tech Mono (Google
+       Fonts) — every render is a server-side headless-Chromium screenshot
+       done on demand per request, so an external font fetch would add
+       network latency/fragility to that path. Every other device uses only
+       this Nix-supplied, offline-guaranteed stack; kept consistent here. */
+    --mono: "DejaVu Sans Mono", monospace;
+  }
+  html, body {
+    margin: 0;
+    padding: 0;
+    width: {{ width }}px;
+    height: {{ height }}px;
+    background: #000;
+  }
+  body {
+    position: relative;
+    font-family: sans-serif;
+    color: #fff;
+  }
+  body::before, body::after {
+    content: "";
+    position: absolute;
+    width: 26px;
+    height: 26px;
+    border: 3px solid var(--c-yellow);
+  }
+  body::before { top: 10px; left: 10px; border-right: none; border-bottom: none; }
+  body::after { bottom: 10px; right: 10px; border-left: none; border-top: none; }
+
+  .widget-weather {
+    box-sizing: border-box;
+    height: 100%;
+    /* Extra bottom padding (not the usual uniform amount) reserves real
+       clearance for the corner bracket + .updated-at footer, which are
+       both absolutely positioned and don't participate in this flex
+       layout — without it, the grid below is free to grow right into
+       that zone. */
+    padding: 26px 26px 56px;
+    display: flex;
+    flex-direction: column;
+  }
+
+  .weather-header {
+    /* Leaves room on the right for the shared battery widget (absolute,
+       top:18/right:26 — see .widget-battery below), same corner every
+       other device uses it in. */
+    padding-right: 90px;
+  }
+  .weather-location {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 24px;
+    letter-spacing: 2px;
+    color: var(--c-yellow);
+    overflow: hidden;
+    white-space: nowrap;
+    text-overflow: ellipsis;
+  }
+  .weather-date {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 2px;
+    color: #fff;
+    margin-top: 4px;
+  }
+  .weather-divider {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    margin-top: 12px;
+  }
+  .weather-divider-chip {
+    width: 10px;
+    height: 10px;
+    background: var(--c-yellow);
+    flex-shrink: 0;
+  }
+  .weather-divider-line {
+    flex: 1;
+    height: 2px;
+    background: #fff;
+  }
+
+  .weather-error {
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    font-family: var(--mono);
+    font-size: 22px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+
+  .weather-now {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-top: 6px;
+  }
+  .now-label {
+    font-family: var(--mono);
+    font-size: 16px;
+    letter-spacing: 3px;
+    color: #fff;
+  }
+  .now-temp {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 74px;
+    line-height: 1;
+    color: #fff;
+  }
+  .now-unit {
+    font-size: 30px;
+    vertical-align: top;
+  }
+  .now-condition {
+    font-family: var(--mono);
+    font-size: 18px;
+    letter-spacing: 2px;
+    color: var(--c-yellow);
+    margin-top: 2px;
+  }
+
+  /* Pure CSS/shape icons — no emoji or icon-font dependency, so rendering
+     never depends on a color-emoji font being present in the Nix/Chromium
+     closure. Fills stay flat/saturated per the dithering rule above. */
+  .weather-icon {
+    width: 64px;
+    height: 64px;
+    flex-shrink: 0;
+    position: relative;
+  }
+  .icon-shape { position: absolute; inset: 0; }
+
+  .icon-clear .icon-shape {
+    top: 8px; left: 8px; width: 44px; height: 44px;
+    border-radius: 50%;
+    background: var(--c-yellow);
+  }
+  /* Four explicit rays, not ::before/::after (only two pseudo-elements are
+     available per node) — an earlier version used just those two and only
+     got top/bottom rays, reading as a lollipop rather than a sun. */
+  .icon-ray {
+    display: none;
+    position: absolute;
+    background: var(--c-yellow);
+  }
+  .icon-clear .icon-ray { display: block; }
+  .icon-clear .ray-n { top: -6px;  left: 26px; width: 12px; height: 14px; }
+  .icon-clear .ray-s { top: 56px;  left: 26px; width: 12px; height: 14px; }
+  .icon-clear .ray-w { top: 26px;  left: -6px; width: 14px; height: 12px; }
+  .icon-clear .ray-e { top: 26px;  left: 56px; width: 14px; height: 12px; }
+
+  .icon-cloudy .icon-shape, .icon-rain .icon-shape, .icon-snow .icon-shape, .icon-storm .icon-shape {
+    top: 18px; left: 6px; width: 52px; height: 26px;
+    background: #fff;
+    border-radius: 13px;
+  }
+  .icon-cloudy .icon-shape::before, .icon-rain .icon-shape::before,
+  .icon-snow .icon-shape::before, .icon-storm .icon-shape::before {
+    content: ""; position: absolute; top: -12px; left: 11px;
+    width: 26px; height: 26px; border-radius: 50%; background: #fff;
+  }
+  .icon-rain .icon-shape::after {
+    content: ""; position: absolute; top: 32px; left: 10px; width: 30px; height: 10px;
+    background:
+      linear-gradient(var(--c-blue), var(--c-blue)) 0 0 / 4px 10px no-repeat,
+      linear-gradient(var(--c-blue), var(--c-blue)) 13px 0 / 4px 10px no-repeat,
+      linear-gradient(var(--c-blue), var(--c-blue)) 26px 0 / 4px 10px no-repeat;
+  }
+  .icon-snow .icon-shape::after {
+    content: ""; position: absolute; top: 34px; left: 10px; width: 30px; height: 7px;
+    background:
+      radial-gradient(circle, #fff 2.5px, transparent 2.5px) 0 0 / 7px 7px no-repeat,
+      radial-gradient(circle, #fff 2.5px, transparent 2.5px) 13px 0 / 7px 7px no-repeat,
+      radial-gradient(circle, #fff 2.5px, transparent 2.5px) 26px 0 / 7px 7px no-repeat;
+  }
+  .icon-storm .icon-shape::after {
+    content: ""; position: absolute; top: 30px; left: 22px; width: 14px; height: 20px;
+    background: var(--c-yellow);
+    clip-path: polygon(60% 0, 0 55%, 40% 55%, 20% 100%, 100% 40%, 55% 40%);
+  }
+  .icon-fog .icon-shape {
+    top: 22px; left: 6px; width: 52px;
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+  .icon-fog .icon-shape::before, .icon-fog .icon-shape::after {
+    content: ""; display: block; height: 4px; background: #fff;
+  }
+  .icon-fog .icon-shape::before { width: 100%; }
+  .icon-fog .icon-shape::after { width: 70%; }
+
+  .section-heading {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-top: 24px;
+    margin-bottom: 8px;
+  }
+  .section-heading span {
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+  .section-rule {
+    flex: 1;
+    height: 1px;
+    background: #fff;
+  }
+
+  .hourly-box {
+    border: 1px solid #fff;
+    box-sizing: border-box;
+    padding: 16px 10px 12px 10px;
+  }
+  .hourly-bars, .hourly-labels {
+    display: flex;
+    justify-content: space-between;
+  }
+  .hourly-col {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    width: 13%;
+  }
+  .hourly-temp {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 14px;
+    color: #fff;
+    margin-bottom: 4px;
+  }
+  .bar-track-wrap {
+    width: 100%;
+    display: flex;
+    justify-content: center;
+  }
+  .bar-track {
+    /* Fixed and narrow, not 100% of the column — a full-width bar per
+       column read as a thick solid block; this is close to the mockup's
+       own bar width (a little wider than the temp digits above it), with
+       the column itself just providing the spacing between bars. */
+    width: 20px;
+    height: 78px;
+    display: flex;
+    align-items: flex-end;
+  }
+  .bar-fill {
+    width: 100%;
+    min-height: 3px;
+    background: var(--c-yellow);
+  }
+  .hourly-rule {
+    height: 2px;
+    background: #fff;
+    margin-top: 10px;
+  }
+  .hourly-labels {
+    margin-top: 8px;
+  }
+  .hourly-hour {
+    font-family: var(--mono);
+    font-size: 13px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+  .hourly-precip {
+    font-family: var(--mono);
+    font-size: 12px;
+    color: var(--c-blue);
+    margin-top: 2px;
+  }
+
+  .precip-peak {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    border-top: 1px solid var(--c-blue);
+    border-bottom: 1px solid var(--c-blue);
+    padding: 9px 6px;
+    margin-top: 20px;
+  }
+  .precip-peak-label {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 2px;
+    color: var(--c-blue);
+  }
+  .precip-peak-value {
+    font-family: var(--mono);
+    font-weight: 700;
+    font-size: 18px;
+    color: #fff;
+  }
+  .precip-peak-value span {
+    font-weight: 400;
+    font-size: 14px;
+  }
+
+  .weather-grid {
+    flex: 1;
+    /* Flex items default to min-height:auto (their content's min size),
+       which lets them overflow a flex parent that doesn't actually have
+       room for that — exactly what let this grid grow past the container
+       and under the footer. min-height:0 makes it honor flex:1's share
+       instead. */
+    min-height: 0;
+    margin-top: 20px;
+    display: grid;
+    grid-template-columns: repeat(2, 1fr);
+    grid-auto-rows: minmax(0, 1fr);
+    gap: 16px;
+  }
+  .weather-tile {
+    min-width: 0;
+    box-sizing: border-box;
+    background: #000;
+    border: 1px solid #fff;
+    padding: 14px 16px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    position: relative;
+  }
+  /* Corner ticks, not a full border-color swap, so the tile stays readable
+     on the black canvas (a full colored border on black is much lower
+     contrast than white) while still status-coding via color — same "color
+     plus a plain-text label, never color alone" rule as every other device. */
+  .weather-tile::before, .weather-tile::after {
+    content: "";
+    position: absolute;
+    width: 10px;
+    height: 10px;
+  }
+  .weather-tile::before { top: -1px; left: -1px; border-top: 2px solid; border-left: 2px solid; }
+  .weather-tile::after { bottom: -1px; right: -1px; border-bottom: 2px solid; border-right: 2px solid; }
+  .tile-yellow::before, .tile-yellow::after { border-color: var(--c-yellow); }
+  .tile-yellow .tile-label { color: var(--c-yellow); }
+  .tile-blue::before, .tile-blue::after { border-color: var(--c-blue); }
+  .tile-blue .tile-label { color: var(--c-blue); }
+  .tile-green::before, .tile-green::after, .tile-low::before, .tile-low::after { border-color: var(--c-green); }
+  .tile-green .tile-label, .tile-low .tile-label { color: var(--c-green); }
+  .tile-moderate::before, .tile-moderate::after { border-color: var(--c-yellow); }
+  .tile-moderate .tile-label { color: var(--c-yellow); }
+  .tile-high::before, .tile-high::after { border-color: var(--c-red); }
+  .tile-high .tile-label { color: var(--c-red); }
+
+  .tile-label {
+    font-family: var(--mono);
+    font-size: 15px;
+    letter-spacing: 2px;
+    text-transform: uppercase;
+    margin-bottom: 12px;
+  }
+  .tile-sublabel {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+  .tile-value {
+    font-family: var(--mono);
+    font-weight: 700;
+    /* Not larger — the Sun tile puts two of these side by side (Rise/Set)
+       in one ~200px-wide tile; anything bigger and "06:25"/"20:11" collide
+       into each other with no gap between them. */
+    font-size: 28px;
+    color: #fff;
+  }
+  .tile-value .unit {
+    font-size: 15px;
+    font-weight: 400;
+    margin-left: 3px;
+  }
+  .sun-row, .uv-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: baseline;
+  }
+  /* min-width:0 lets these actually shrink under space-between instead of
+     overflowing past each other when their combined content is close to
+     the tile's width — see .tile-value's comment above. */
+  .sun-row > div { min-width: 0; }
+  .wind-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+  }
+  /* Buffer box, not the arrow's own bounding box — a rotated 20x20 square's
+     diagonal (~28px) plus the arrowhead tip sticking past that already
+     exceeds 20px, so without this the rotated shape pokes past the tile's
+     own right/bottom border instead of staying clear of it. */
+  .wind-arrow-wrap {
+    width: 34px;
+    height: 34px;
+    flex-shrink: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  .wind-arrow {
+    width: 20px;
+    height: 20px;
+    border: 2px solid var(--c-blue);
+    position: relative;
+  }
+  .wind-arrow::before {
+    content: "";
+    position: absolute;
+    top: -7px;
+    left: 4px;
+    width: 0;
+    height: 0;
+    border-left: 4px solid transparent;
+    border-right: 4px solid transparent;
+    border-bottom: 7px solid var(--c-blue);
+  }
+  .humidity-meter {
+    display: flex;
+    gap: 2px;
+    margin-top: 8px;
+  }
+  .humidity-segment {
+    flex: 1;
+    height: 8px;
+    border: 1px solid #fff;
+    box-sizing: border-box;
+    background: transparent;
+  }
+  .humidity-segment.filled {
+    background: var(--c-green);
+  }
+
+  /* Sits in the top margin, same corner every other device uses it in. */
+  .widget-battery {
+    position: absolute;
+    top: 18px;
+    right: 26px;
+    display: flex;
+    flex-direction: column;
+    align-items: flex-end;
+    gap: 5px;
+  }
+  .battery-meter {
+    display: flex;
+    gap: 3px;
+  }
+  .battery-segment {
+    width: 14px;
+    height: 24px;
+    box-sizing: border-box;
+    border: 2px solid #fff;
+    background: transparent;
+  }
+  .battery-segment.filled {
+    background: var(--c-green);
+  }
+  .level-medium .battery-segment.filled {
+    background: var(--c-yellow);
+  }
+  .level-low .battery-segment.filled {
+    background: var(--c-red);
+  }
+  .battery-label {
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    color: #fff;
+  }
+  .widget-battery.level-low .battery-segment {
+    border-width: 3px;
+    border-color: var(--c-red);
+  }
+  .widget-battery.level-low .battery-label {
+    font-weight: 700;
+    color: var(--c-red);
+  }
+
+  .updated-at {
+    position: absolute;
+    /* bottom:40 (not less) clears the corner bracket, which occupies the
+       bottom:10-36 / right:10-36 box — see screen_status.html's matching
+       value. */
+    bottom: 40px;
+    right: 16px;
+    font-family: var(--mono);
+    font-size: 14px;
+    letter-spacing: 1px;
+    text-transform: uppercase;
+    color: #fff;
+  }
+</style>
+</head>
+<body>
+  {% include "widgets/battery.html" %}
+  {% include "widgets/weather.html" %}
+  {% if updated_at %}
+  <div class="updated-at">Updated {{ updated_at }}</div>
+  {% endif %}
+</body>
+</html>
